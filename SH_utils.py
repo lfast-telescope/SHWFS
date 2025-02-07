@@ -927,8 +927,8 @@ def trim_maps_to_square(regularSlopeX, regularSlopeY):
         regularSlopeX = regularSlopeX[int((N-M)/2)+1:-int((N-M)/2),:]
         regularSlopeY = regularSlopeY[int((N-M)/2)+1:-int((N-M)/2),:]
     elif N < M:
-        regularSlopeX = regularSlopeX[:,int((N-M)/2)+1:-int((N-M)/2),:]
-        regularSlopeY = regularSlopeY[:,int((N-M)/2)+1:-int((N-M)/2),:]
+        regularSlopeX = regularSlopeX[:,int((N-M)/2)+1:-int((N-M)/2)]
+        regularSlopeY = regularSlopeY[:,int((N-M)/2)+1:-int((N-M)/2)]
     return regularSlopeX, regularSlopeY
 
 def SouthwellIntegration(slopeX, slopeY, type='Southwell'):
