@@ -38,8 +38,12 @@ def find_radius(image):
     rows, cols = np.where(binary_im > 0)
 
     # Calculate the difference between max and min row/column
-    row_diff = np.max(rows) - np.min(rows)
-    col_diff = np.max(cols) - np.min(cols)
+    row_top = np.sort(rows)[2]
+    row_bot = np.sort(rows)[-2]
+    col_top = np.sort(cols)[2]
+    col_bot = np.sort(cols)[-2]
+    row_diff = row_bot - row_top
+    col_diff = col_bot - col_top
 
     # Compute the radius as the average of row_diff and col_diff divided by 4
     radius = (row_diff + col_diff) / 4
@@ -199,7 +203,7 @@ def crop_image(image):
     x_cent, y_cent = find_center(image)
 
         # Find the radius
-    radius = find_radius(image) * 1.5  # Add a little fudge so that all the spots fit
+    radius = find_radius(image) * 1.1  # Add a little fudge so that all the spots fit
 
     # Optional: Visualize the circle (for debugging)
     if False:

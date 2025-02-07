@@ -86,9 +86,12 @@ def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, 
 
 if __name__ == "__main__":
     output_plots = False
-    folder_path =r'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/on-sky/20240118/test_sample/'
+    folder_path ='/run/user/1000/gvfs/google-drive:host=gmail.com,user=lfastelescope/0ABWAmPdRyHoKUk9PVA/1tMLwOJ8KbNA7trH1MLRVAMo835F-kGyq/1I28oSs6aYDfuuy_nnJWG0Wk-pwYBrVco/1s42YTPTV4NQ4IuA3MDr9d1m9C9c6DWY5/1PJlgxbQX9DTzFsJuBKm-8rC8am762weZ/1Et6x98BLRfg1eYAU9yES3Y0kE3xp-n0O/196a-oV_0jKSv1dFVZsjzv_yQxvXm0aG3/10cwNmDsoaM1v0bJfVy39a91j3FOdrzL_'
     referenceX, referenceY, magnification, nominalSpot = define_reference(folder_path, output_plots)
-    #compute_wavefront(image, referenceX, referenceY, magnification, nominalSpot,
-
-
-
+    image = prepare_image(folder_path + '/' + os.listdir(folder_path)[0])
+    shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, output_plots = False)
+    plt.imshow(shape_diff)
+    plt.colorbar()
+    plt.show()
+    x=1
+    
