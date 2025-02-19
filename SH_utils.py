@@ -1,16 +1,17 @@
 import numpy as np
 import cv2
+import os
 from scipy.ndimage import gaussian_filter, rotate, maximum_filter
 from scipy.signal import find_peaks, medfilt
 from scipy.spatial.distance import cdist
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize_scalar, minimize
 from scipy.interpolate import griddata, RBFInterpolator
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import lsqr
 from skimage.feature import peak_local_max
+from skimage import io
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
-
 
 def find_radius(image):
     """
@@ -186,7 +187,7 @@ def FindClosestPoint(pointSet, point1, point2=None, point3=None):
     return closestPoint, ptIndex
 
 
-def crop_image(image):
+def crop_image(image, xyr=None):
     """
     Crop the image based on the center and radius.
 
@@ -197,20 +198,26 @@ def crop_image(image):
         image_crop: Cropped image.
     """
     # Convert image to double (float64)
-    image = image.astype(np.float64)
+    if xyr is not None:
+        x_cent = xyr[0]
+        y_cent = xyr[1]
+        radius = xyr[2]*1.1
 
-    # Find the center of the image
-    x_cent, y_cent = find_center(image)
+    else:
+        image = image.astype(np.float64)
 
-        # Find the radius
-    radius = find_radius(image) * 1.1  # Add a little fudge so that all the spots fit
+        # Find the center of the image
+        x_cent, y_cent = find_center(image)
 
-    # Optional: Visualize the circle (for debugging)
-    if False:
-        plt.imshow(image, cmap='gray')
-        circle = Circle((x_cent, y_cent), radius, color='r', fill=False)
-        plt.gca().add_patch(circle)
-        plt.show()
+            # Find the radius
+        radius = find_radius(image) * 1.1  # Add a little fudge so that all the spots fit
+
+        # Optional: Visualize the circle (for debugging)
+        if False:
+            plt.imshow(image, cmap='gray')
+            circle = Circle((x_cent, y_cent), radius, color='r', fill=False)
+            plt.gca().add_patch(circle)
+            plt.show()
 
     # Get image dimensions
     y_size, x_size = image.shape
@@ -222,6 +229,11 @@ def crop_image(image):
     x_right = int(x_cent + radius)
 
     image_crop = image[y_top:y_bot, x_left:x_right]
+
+    if image_crop.shape[0] > image_crop.shape[1]:
+        image_crop = image_crop[1:,:]
+    elif image_crop.shape[0] < image_crop.shape[1]:
+        image_crop = image_crop[:,1:]
 
     return image_crop
 
@@ -287,10 +299,10 @@ def improve_image_rotation(im_crop, use_optimizer = True):
 
     image = rotate(im_crop, best_angle, reshape=False)
 
-    return image
+    return image, best_angle
 
 
-def GetGrid(image, output_plots=False):
+def GetGrid(image, xyr=None, output_plots=False):
     # Get pixel coordinates of bright spots.
 
     # Binarize the image to get a mask.
@@ -298,7 +310,7 @@ def GetGrid(image, output_plots=False):
     maxValue = np.max(image)
     minValue = np.min(image)
     imageUint8 = ((image - minValue) / (maxValue - minValue) * 255).astype(np.uint8)
-    _, binaryIm = cv2.threshold(imageUint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, binaryIm = cv2.threshold(imageUint8, np.sort(imageUint8.ravel())[int(imageUint8.size*0.99)], 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     if output_plots:
         plt.imshow(binaryIm, cmap='gray')
@@ -306,7 +318,7 @@ def GetGrid(image, output_plots=False):
         plt.show()
 
     # Use the mask to get the target regions on the smoothed image.
-    sigma = 2  # (!)
+    sigma = 3  # (!)
     smoothIm = gaussian_filter(image, sigma)
     maskedIm = binaryIm * smoothIm
 
@@ -343,8 +355,12 @@ def GetGrid(image, output_plots=False):
     magnification = np.max(croppedDist)
 
     # Find the central reference.
-    rowAve = np.mean(rows)
-    colAve = np.mean(cols)
+    if xyr is None:
+        rowAve = np.mean(rows)
+        colAve = np.mean(cols)
+    else:
+        rowAve = xyr[0]
+        colAve = xyr[1]
     centralSpot = np.array([colAve, rowAve])
     closestSpot, _ = FindClosestPoint(spotSet, centralSpot)
     referenceX = closestSpot[0]
@@ -403,8 +419,7 @@ def target_contrast_control(image):
 
     return corrected_im
 
-
-def get_quiver(image, reference_x, reference_y, magnification, output_plots=False):
+def get_quiver(image, reference_x, reference_y, magnification, xyr=None, output_plots=False):
     """
     Get the quiver for actual points according to the regular grid.
 
@@ -438,14 +453,21 @@ def get_quiver(image, reference_x, reference_y, magnification, output_plots=Fals
     Y = Y.flatten()
 
     # Find center and radius
-    x_cent, y_cent = find_center(image)
-    radius = find_radius(image) * 1.05  # Add a little fudge so that all the spots fit
+    if xyr is None:
+        x_cent, y_cent = find_center(image)
+        radius = find_radius(image) * 1.05  # Add a little fudge so that all the spots fit
+    else:
+        x_cent = xyr[0]
+        y_cent = xyr[1]
+        radius = xyr[2]
 
     if output_plots:
-        plt.imshow(image, cmap='gray')
-        plt.scatter(X, Y, c='r', marker='+')
-        plt.savefig('regular_grid.png')
-        plt.close()
+        fig,ax = plt.subplots()
+        ax.imshow(image, cmap='gray')
+        ax.scatter(X, Y, c='r', marker='+')
+        artist = Circle(xyr[:2],xyr[2],fill=False,color='g')
+        ax.add_artist(artist)
+        plt.show()
 
     # Stretch contrast of the image
     image = target_contrast_control(image)  # Replace with your implementation
@@ -536,8 +558,7 @@ def get_quiver(image, reference_x, reference_y, magnification, output_plots=Fals
         plt.show()
         plt.imshow(image, cmap='gray')
         plt.quiver(ideal_coords[:, 0], ideal_coords[:, 1], arrows[:, 0], arrows[:, 1], color='r')
-        plt.savefig('quiver.png')
-        plt.close()
+        plt.show()
 
     pupil_center = np.mean(ideal_coords,0)
     pupil_radius = np.median([np.max(ideal_coords,0) - np.mean(ideal_coords,0),np.mean(ideal_coords,0) - np.min(ideal_coords,0)])
@@ -596,6 +617,9 @@ def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnifi
         # Mask out values outside pupil
         scaled_pupil_center = pupil_center * lateralMagnification
         scaled_pupil_radius = pupil_radius * lateralMagnification
+        pupil_mask = np.sqrt(np.square(xCoordinates-scaled_pupil_center[0])+np.square(yCoordinates-scaled_pupil_center[1])) < scaled_pupil_radius
+        regularSlopeX[~pupil_mask] = np.nan
+        regularSlopeY[~pupil_mask] = np.nan
 
     else:
         raise ValueError('Have not implemented interpolation technique ' + interpolation)
@@ -606,6 +630,8 @@ def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnifi
     if output_plots:
         plt.figure()
         plt.pcolormesh(xCoordinates, yCoordinates, regularSlopeX, shading='auto')
+        artist = Circle(scaled_pupil_center, scaled_pupil_radius,fill=False,color='r')
+        plt.gca().add_artist(artist)
         plt.colorbar(label='Slope X')
         plt.title('Regular slope in x direction')
         plt.xlabel('X (mm)')
@@ -616,19 +642,14 @@ def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnifi
     if output_plots:
         plt.figure()
         plt.pcolormesh(xCoordinates, yCoordinates, regularSlopeY, shading='auto')
+        artist = Circle(scaled_pupil_center, scaled_pupil_radius,fill=False,color='r')
+        plt.gca().add_artist(artist)
         plt.colorbar(label='Slope Y')
         plt.title('Regular slope in y direction')
         plt.xlabel('X (mm)')
         plt.ylabel('Y (mm)')
         plt.axis('equal')
         plt.show()
-
-        pupil_distance = np.sqrt(np.power(xCoordinates - pupil_center[0] * lateralMagnification, 2) + np.power(
-            yCoordinates - pupil_center[1] * lateralMagnification, 2))
-        pupil_boolean = pupil_distance < pupil_radius * lateralMagnification
-        regularSlopeX[~pupil_boolean] = np.nan
-        regularSlopeY[~pupil_boolean] = np.nan
-
 
     return regularSlopeX, regularSlopeY, xCoordinates, yCoordinates
 
@@ -1060,3 +1081,96 @@ def SouthwellShifting(slopeX, slopeY):
     slopeY_shifted[-1, :] = slopeY_shifted[-2, :]
 
     return slopeX_shifted, slopeY_shifted
+
+def prepare_image(file_name, rotation = None, xyr = None, output_plots = False):
+    # Read the image
+    image_color = cv2.imread(file_name)
+
+    # Check if the image was loaded successfully
+    if image_color is None:
+        raise FileNotFoundError(f"Image file not found at {file_name}")
+
+    # Convert the image to grayscale
+    image_gray = cv2.cvtColor(image_color, cv2.COLOR_BGR2GRAY)
+
+    # Crop the image using the CropImage function
+    im_crop = crop_image(image_gray, xyr)
+
+    # Optional: Display the cropped image
+    if output_plots:
+        plt.imshow(im_crop)
+        plt.title('Cropped image')
+        plt.show()
+
+    if rotation:
+        image = rotate(im_crop, rotation, reshape=False)
+    else:
+        image, rotation = improve_image_rotation(im_crop)
+
+    return image, rotation
+
+def define_reference(folder_path, xyr=None, output_plots = False):
+    refX_holder = []
+    refY_holder = []
+    magnification_holder = []
+    nominalSpot_holder = []
+    rotation_holder = []
+    for file in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, file)
+        image, rotation = prepare_image(file_path,xyr=xyr,output_plots=output_plots)
+        xyr_cropped = [image.shape[0]/2,image.shape[1]/2,xyr[2]]
+        referenceX, referenceY, magnification, nominalSpot = GetGrid(image, xyr_cropped, output_plots)
+        refX_holder.append(referenceX)
+        refY_holder.append(referenceY)
+        magnification_holder.append(magnification)
+        nominalSpot_holder.append(nominalSpot)
+        rotation_holder.append(rotation)
+    return np.mean(refX_holder), np.mean(refY_holder), np.mean(magnification_holder), np.mean(nominalSpot_holder,0), np.mean(rotation_holder)
+
+def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1.4, outside_pupil_weight = 1):
+
+    negative_image = np.subtract(thresh_image.astype(float), np.max(thresh_image.astype(float)))*-1
+    X,Y = np.meshgrid(np.arange(thresh_image.shape[0]),np.arange(thresh_image.shape[1]))
+    proposed_pupil = np.sqrt(np.square(X-xyr[0]) + np.square(Y-xyr[1])) < xyr[2]
+    spots_inside_pupil = np.sum(thresh_image[proposed_pupil]).astype(float)
+    spots_outside_pupil = np.sum(thresh_image[~proposed_pupil]).astype(float)
+    spaces_inside_pupil = np.sum(negative_image[proposed_pupil]).astype(float)
+    spaces_outside_pupil = np.sum(negative_image[~proposed_pupil]).astype(float)
+
+    good_pupil = spots_inside_pupil**inside_pupil_weight + spaces_outside_pupil
+    bad_pupil = spots_outside_pupil**outside_pupil_weight + spaces_inside_pupil
+
+    merit = (bad_pupil - good_pupil)/(np.sum(thresh_image) + np.sum(negative_image))
+
+    if False:
+        fig,ax = plt.subplots()
+        ax.imshow(thresh_image)
+        artist = Circle(xyr[:2],xyr[-1],fill=False,color='r')
+        ax.add_artist(artist)
+        fig.suptitle(np.round(xyr[-1],3))
+        plt.show()
+    elif False:
+        print(np.round(merit,3))
+
+    return merit
+
+def average_folder_of_images(path):
+    image_holder = []
+    for file in os.listdir(path):
+        if file.lower().endswith(".jpg") or file.lower().endswith(".png") or file.lower().endswith(".bmp"):
+            image_holder.append(io.imread(path + file))
+    image = np.mean(image_holder,0)
+    return image
+
+def define_pupil_from_extended_object(image,thresh=127):
+    thresh_image = cv2.threshold(image, thresh, 1, cv2.THRESH_BINARY)[1]
+    xyr = [int(thresh_image.shape[0]/2), int(thresh_image.shape[1]/2), int(np.max(thresh_image.shape)/4)]
+    res = minimize(jupiter_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead')
+    return res.x
+
+def define_xyr_for_boolean_pupil(pupil):
+    X,Y = np.meshgrid(np.arange(pupil.shape[1]),np.arange(pupil.shape[0]))
+    cent_x = np.sum(X * pupil) / np.sum(pupil)
+    cent_y = np.sum(Y * pupil) / np.sum(pupil)
+    radius = (len(np.where(pupil[int(cent_y),:])[0]) + len(np.where(pupil[:,int(cent_x)])[0])) / 4
+    return [cent_x, cent_y, radius]

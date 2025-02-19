@@ -1,50 +1,17 @@
 import os
-
-import cv2
+from skimage import io
+import cv2 as cv
 from SH_utils import *
+import time
+import pickle
+from scipy.ndimage import gaussian_filter
+from matplotlib import pyplot as plt
+from matplotlib import patches
+#%%
 
-def prepare_image(file_name, output_plots = False):
-    # Read the image
-    image_color = cv2.imread(file_name)
+def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr=None, output_plots = False):
 
-    # Check if the image was loaded successfully
-    if image_color is None:
-        raise FileNotFoundError(f"Image file not found at {file_name}")
-
-    # Convert the image to grayscale
-    image_gray = cv2.cvtColor(image_color, cv2.COLOR_BGR2GRAY)
-
-    # Crop the image using the CropImage function
-    im_crop = crop_image(image_gray)
-
-    # Optional: Display the cropped image
-    if output_plots:
-        cv2.imshow("Cropped Image", im_crop.astype(np.uint8))
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-    image = improve_image_rotation(im_crop)
-
-    return image
-
-def define_reference(folder_path, output_plots = False):
-    refX_holder = []
-    refY_holder = []
-    magnification_holder = []
-    nominalSpot_holder = []
-    for file in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, file)
-        image = prepare_image(file_path)
-        referenceX, referenceY, magnification, nominalSpot = GetGrid(image, output_plots)
-        refX_holder.append(referenceX)
-        refY_holder.append(referenceY)
-        magnification_holder.append(magnification)
-        nominalSpot_holder.append(nominalSpot)
-    return np.mean(refX_holder), np.mean(refY_holder), np.mean(magnification_holder), np.mean(nominalSpot_holder,0)
-
-def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, output_plots = False):
-
-    arrows, ideal_coords, actual_coords, pupil_center, pupil_radius = get_quiver(image, nominalSpot[0], nominalSpot[1], magnification, output_plots)
+    arrows, ideal_coords, actual_coords, pupil_center, pupil_radius = get_quiver(image, nominalSpot[0], nominalSpot[1], magnification, xyr, output_plots)
 
     #Redo these numbers with N9 - different focal length.
 
@@ -84,14 +51,71 @@ def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, 
 
     return shape_diff
 
+
+#%%
 if __name__ == "__main__":
+#%%
+    jupiter_path = 'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/on-sky/20250206/0519/'
+    folder_path = 'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/on-sky/20250206/0309/'
+    jup_image = average_folder_of_images(jupiter_path)
+
+    if not os.path.isfile(jupiter_path + 'xyr.pkl'):
+        xyr = define_pupil_from_extended_object(jup_image, thresh=127)
+        with open(jupiter_path + 'xyr.pkl', 'wb') as f:
+            pickle.dump(xyr,f)
+    else:
+        with open(jupiter_path + 'xyr.pkl', 'rb') as f:
+            xyr = pickle.load(f)
+
+#%%
+    print('Start test')
+    starting_time = time.time()
     output_plots = False
-    folder_path ='/run/user/1000/gvfs/google-drive:host=gmail.com,user=lfastelescope/0ABWAmPdRyHoKUk9PVA/1tMLwOJ8KbNA7trH1MLRVAMo835F-kGyq/1I28oSs6aYDfuuy_nnJWG0Wk-pwYBrVco/1s42YTPTV4NQ4IuA3MDr9d1m9C9c6DWY5/1PJlgxbQX9DTzFsJuBKm-8rC8am762weZ/1Et6x98BLRfg1eYAU9yES3Y0kE3xp-n0O/196a-oV_0jKSv1dFVZsjzv_yQxvXm0aG3/10cwNmDsoaM1v0bJfVy39a91j3FOdrzL_'
-    referenceX, referenceY, magnification, nominalSpot = define_reference(folder_path, output_plots)
-    image = prepare_image(folder_path + '/' + os.listdir(folder_path)[0])
-    shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, output_plots = False)
-    plt.imshow(shape_diff)
-    plt.colorbar()
+
+    if os.path.isfile(folder_path + 'references.pkl'):
+        with open(folder_path + 'references.pkl', 'rb') as f:
+            loaded_dict = pickle.load(f)
+        referenceX = loaded_dict["refX"]
+        referenceY = loaded_dict["refY"]
+        magnification = loaded_dict["magnification"]
+        nominalSpot = loaded_dict["nominalSpot"]
+        rotation = loaded_dict["rotation"]
+    else:
+        referenceX, referenceY, magnification, nominalSpot, rotation = define_reference(folder_path, xyr, output_plots)
+        references = {"refX":referenceX,
+                      "refY":referenceY,
+                      "magnification":magnification,
+                      "nominalSpot":nominalSpot,
+                      "rotation":rotation}
+        with open(folder_path + 'references.pkl', 'wb') as f:
+            pickle.dump(references,f)
+    print('Define reference: ' + str(round(time.time() - starting_time)))
+#%%
+    starting_time = time.time()
+
+    image,_ = prepare_image(folder_path + '/' + os.listdir(folder_path)[0], rotation, xyr)
+    X, Y = np.meshgrid(np.arange(jup_image.shape[0]), np.arange(jup_image.shape[1]))
+    proposed_pupil = np.sqrt(np.square(X - xyr[0]) + np.square(Y - xyr[1])) < xyr[2]
+    cropped_pupil = crop_image(proposed_pupil, xyr)
+    xyr_cropped = [cropped_pupil.shape[0] / 2, cropped_pupil.shape[1] / 2, xyr[-1]]
+
+    print('Prepare image: ' + str(round(time.time() - starting_time)))
+    starting_time = time.time()
+    shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots = False)
+    print('Compute wavefront: ' + str(round(time.time() - starting_time)))
+
+#%%
+
+
+if False:
+    im_blur = gaussian_filter(image, 11)
+    img = im_blur.astype('uint8')
+    circles = cv.HoughCircles(img, cv.HOUGH_GRADIENT, dp=2, minDist=200,
+                              param1=27, param2=30, minRadius=500, maxRadius=1000)
+    fig,ax = plt.subplots()
+    plt.imshow(img)
+    artist = patches.Circle(circles[0][0][:2],circles[0][0][-1],fill=False,color='red')
+    ax.add_artist(artist)
     plt.show()
-    x=1
-    
+
+
