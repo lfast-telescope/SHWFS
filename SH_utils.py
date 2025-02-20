@@ -461,6 +461,8 @@ def get_quiver(image, reference_x, reference_y, magnification, xyr=None, output_
         y_cent = xyr[1]
         radius = xyr[2]
 
+    central_obscuration_radius = radius * 6 / 30
+
     if output_plots:
         fig,ax = plt.subplots()
         ax.imshow(image, cmap='gray')
@@ -475,7 +477,8 @@ def get_quiver(image, reference_x, reference_y, magnification, xyr=None, output_
 
     # Find arrows
     cross_num = len(X)
-    grayscale_threshold = 24  # (Sometimes arbitrary numbers can eat your lunch)
+    threshold_percent_cutoff = 0.993 # (Sometimes arbitrary numbers can eat your lunch)
+    grayscale_threshold = np.sort(image.ravel())[int(len(image.ravel())*threshold_percent_cutoff)]
     half_size = int(round(0.5 * magnification))  #Semidiameter of lenslet
     available_pts_num = 0
     ideal_coords = []
@@ -510,9 +513,11 @@ def get_quiver(image, reference_x, reference_y, magnification, xyr=None, output_
 
         distance_from_center = np.sqrt((x_target_1d + lower_x - x_cent) ** 2 + (y_target_1d + lower_y - y_cent) ** 2)
         pixel_inside_circle = distance_from_center < radius
+        pixel_outside_ID = distance_from_center > central_obscuration_radius
+        valid_pixel = pixel_inside_circle * pixel_outside_ID
 
-        # If more than 80% of the region is outside the defined pupil, reject this region
-        if np.sum(pixel_inside_circle) < pixel_inside_circle.size * 0.2:
+        # If more than 75% of the region is outside the defined pupil, reject this region
+        if np.sum(valid_pixel) < valid_pixel.size * 0.25:
             if output_plots:
                 rect = plt.Rectangle((lower_x, lower_y), upper_x - lower_x, upper_y - lower_y, edgecolor='r',
                                      fill=False)
@@ -617,7 +622,10 @@ def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnifi
         # Mask out values outside pupil
         scaled_pupil_center = pupil_center * lateralMagnification
         scaled_pupil_radius = pupil_radius * lateralMagnification
-        pupil_mask = np.sqrt(np.square(xCoordinates-scaled_pupil_center[0])+np.square(yCoordinates-scaled_pupil_center[1])) < scaled_pupil_radius
+        scaled_ID_radius = scaled_pupil_radius * (6 / 30)
+        OD_mask = np.sqrt(np.square(xCoordinates-scaled_pupil_center[0])+np.square(yCoordinates-scaled_pupil_center[1])) < scaled_pupil_radius
+        ID_mask = np.sqrt(np.square(xCoordinates-scaled_pupil_center[0])+np.square(yCoordinates-scaled_pupil_center[1])) > scaled_ID_radius
+        pupil_mask = OD_mask * ID_mask
         regularSlopeX[~pupil_mask] = np.nan
         regularSlopeY[~pupil_mask] = np.nan
 
@@ -1174,3 +1182,40 @@ def define_xyr_for_boolean_pupil(pupil):
     cent_y = np.sum(Y * pupil) / np.sum(pupil)
     radius = (len(np.where(pupil[int(cent_y),:])[0]) + len(np.where(pupil[:,int(cent_x)])[0])) / 4
     return [cent_x, cent_y, radius]
+
+def choose_how_much_to_crop(pupil):
+    # crop out columns / rows of nans surrounding the edge of the pupil
+    left = 0
+    while np.all(np.isnan(pupil[left, :])):
+        left = left + 1
+    right = pupil.shape[0]-1
+    while np.all(np.isnan(pupil[right,:])):
+        right = right - 1
+    top = 0
+    while np.all(np.isnan(pupil[:,top])):
+        top = top + 1
+    bottom = pupil.shape[0]-1
+    while np.all(np.isnan(pupil[:,bottom])):
+        bottom = bottom - 1
+
+    return left, right+1, top, bottom+1
+
+def griddata_interpolater(starting_im, ending_im,clear_aperture_outer, clear_aperture_inner):
+    left, right, top, bottom = choose_how_much_to_crop(starting_im)
+    begin_im = starting_im[left:right, top:bottom]
+    left, right, top, bottom = choose_how_much_to_crop(ending_im)
+    finish_im = ending_im[left:right, top:bottom]
+    x,y = np.meshgrid(np.linspace(-clear_aperture_outer,clear_aperture_outer,begin_im.shape[1]), np.linspace(-clear_aperture_outer,clear_aperture_outer,begin_im.shape[0]))
+    X,Y = np.meshgrid(np.linspace(-clear_aperture_outer,clear_aperture_outer,finish_im.shape[1]), np.linspace(-clear_aperture_outer,clear_aperture_outer,finish_im.shape[0]))
+    begin_valid = ~np.isnan(begin_im)
+    grid_z = griddata((x[begin_valid],y[begin_valid]),begin_im[begin_valid],(X,Y),method='cubic')
+    center_coordinate = grid_z.shape[0]/2
+    distance_from_center = np.sqrt(np.square(X) + np.square(Y))
+    end_OD = distance_from_center < clear_aperture_outer
+    end_ID = distance_from_center > clear_aperture_inner
+    end_valid = end_OD * end_ID
+    grid_z[~end_valid] = np.nan
+
+    req_pad = ending_im.shape[0]-grid_z.shape[0]
+    grid_pad = np.pad(grid_z,int(req_pad/2),mode='constant',constant_values=np.nan)
+    return grid_pad
