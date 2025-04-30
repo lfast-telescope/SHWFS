@@ -957,11 +957,11 @@ def SouthwellShift(slopeXIn, slopeYIn):
 def trim_maps_to_square(regularSlopeX, regularSlopeY):
     N,M = regularSlopeX.shape
     if N > M:
-        regularSlopeX = regularSlopeX[int((N-M)/2)+1:-int((N-M)/2),:]
-        regularSlopeY = regularSlopeY[int((N-M)/2)+1:-int((N-M)/2),:]
+        regularSlopeX = regularSlopeX[int((N-M)):,:]
+        regularSlopeY = regularSlopeY[int((N-M)):,:]
     elif N < M:
-        regularSlopeX = regularSlopeX[:,int((N-M)/2)+1:-int((N-M)/2)]
-        regularSlopeY = regularSlopeY[:,int((N-M)/2)+1:-int((N-M)/2)]
+        regularSlopeX = regularSlopeX[:,int((M-N)):]
+        regularSlopeY = regularSlopeY[:,int((M-N)):]
     return regularSlopeX, regularSlopeY
 
 def SouthwellIntegration(slopeX, slopeY, type='Southwell'):
@@ -1165,7 +1165,7 @@ def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1.4, out
 def average_folder_of_images(path):
     image_holder = []
     for file in os.listdir(path):
-        if file.lower().endswith(".jpg") or file.lower().endswith(".png") or file.lower().endswith(".bmp"):
+        #if file.lower().endswith(".jpg") or file.lower().endswith(".png") or file.lower().endswith(".bmp"):
             image_holder.append(io.imread(path + file))
     image = np.mean(image_holder,0)
     return image

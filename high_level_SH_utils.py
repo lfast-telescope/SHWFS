@@ -8,7 +8,7 @@ from scipy.ndimage import gaussian_filter
 from matplotlib import pyplot as plt
 from matplotlib import patches
 from aperture_utils import *
-from zernike import *
+from Zernike import *
 from LFAST_wavefront_utils import *
 
 def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr=None, output_plots = False):
@@ -66,8 +66,8 @@ def xyr_pupil_definition(extend_path, reference_path):
 
     return xyr, jup_image
 
-def lenslet_definition(folder_path, reference_path, xyr, output_plots):
-    if os.path.isfile(reference_path + 'references.pkl'):
+def lenslet_definition(folder_path, reference_path, xyr, output_plots, recompute_rotation = False):
+    if os.path.isfile(reference_path + 'references.pkl') and not recompute_rotation:
         with open(reference_path + 'references.pkl', 'rb') as f:
             loaded_dict = pickle.load(f)
         referenceX = loaded_dict["refX"]
@@ -93,12 +93,14 @@ def process_folder_of_images(folder_path,rotation, xyr, referenceX, referenceY, 
     for num, filename in enumerate(os.listdir(folder_path)):
         starting_time = time.time()
         image,_ = prepare_image(folder_path + '/' + filename, rotation, xyr)
-        shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots=False)
+        shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots=True)
 
-        if num==0 or shape_diff.shape[0] != Z[1].shape[0]:
-            Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
-        M,C = get_M_and_C(shape_diff, Z)
-        updated_surface = remove_modes(M,C,Z,remove_coef)*1e3
+        #if num==0 or shape_diff.shape[0] != Z[1].shape[0]:
+        #    Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
+        #M,C = get_M_and_C(shape_diff, Z)
+        #updated_surface = remove_modes(M,C,Z,remove_coef)*1e3
+        updated_surface = shape_diff.copy()
+        
         surfaces.append(updated_surface)
 
         if output_plots:
@@ -116,27 +118,33 @@ def process_folder_of_images(folder_path,rotation, xyr, referenceX, referenceY, 
 
         print('SH image #' + str(num) + ' processed in ' + str(round(time.time()-starting_time, 1)) + ' seconds')
 
+    Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
     return surfaces, Z
 
 #%%
 def suggest_next_iteration_of_TEC_correction(current_eigenvalues, folder_path, tec_path, mean_surface, eigenvectors, clear_aperture_outer, clear_aperture_inner, Z, eigenvalue_bounds, eigen_gain):
-    timestamp = folder_path.split('/')[-2]
+    timestamp = str(round(os.path.getmtime(folder_path)))
 
     interpolated_surface = griddata_interpolater(mean_surface, eigenvectors[0], clear_aperture_outer,
                                                  clear_aperture_inner)
-    reduced_surface, eigenvalue_delta = optimize_TECs(interpolated_surface, eigenvectors, current_eigenvalues,
+    
+    M,C = get_M_and_C(interpolated_surface,Z)
+    remove_coef = [0,1,2,4]
+    updated_surface = remove_modes(M,C,Z,remove_coef)*-1e3
+
+    reduced_surface, eigenvalue_delta = optimize_TECs(updated_surface, eigenvectors, current_eigenvalues,
                                                       eigenvalue_bounds, clear_aperture_outer, clear_aperture_inner, Z,
-                                                      metric='rms_neutral')
+                                                      metric='rms_bounded')
     eigenvalues = current_eigenvalues + eigenvalue_delta * eigen_gain
     write_eigenvalues_to_csv(tec_path + 'corrections_based_on_' + timestamp + '.csv', eigenvalues)
 
-    vals = mean_surface[~np.isnan(mean_surface)]
+    vals = updated_surface[~np.isnan(updated_surface)]
     sorted_vals = np.sort(vals)
     sorted_index = int(0.001 * len(sorted_vals))  # For peak-valley, throw out the extreme tails
     pv = sorted_vals[-sorted_index] - sorted_vals[sorted_index]
     rms = np.sqrt(np.sum(np.power(vals, 2)) / len(vals))
 
-    plt.imshow(mean_surface)
+    plt.imshow(updated_surface)
     plt.xticks([])
     plt.yticks([])
     plt.title('Surface at ' + timestamp + ' has ' + str(np.round(rms * 1000)) + 'nm wavefront error')
