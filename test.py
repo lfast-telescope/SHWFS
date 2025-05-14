@@ -16,9 +16,9 @@ from LFAST_TEC_output import *
 #%%
 if __name__ == "__main__":
 
-    reference_path = 'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/on-sky/20250206/'
-    extend_path = reference_path + '0519/'
-    folder_path = reference_path + '0309/'
+    reference_path = r'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/on-sky/20250501/' #path pointing to images used for pupil definition
+    reference_path = os.path.join(reference_path,'220452/') #path to
+    folder_path = os.path.join(reference_path, '221340/')
 
     eigenvectors_path = 'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/mirrors/M9/eigenvectors.npy'
     tec_path = eigenvectors_path
@@ -35,12 +35,10 @@ if __name__ == "__main__":
     clear_aperture_outer = 0.47 * OD
     clear_aperture_inner = ID / 2
 
-    xyr, extend_image = xyr_pupil_definition(extend_path, reference_path)
+    xyr, extend_image = xyr_pupil_definition(reference_path, reference_path)
     jup_crop = crop_image(extend_image,xyr)
-    grid_diameter = (clear_aperture_outer*2) * (jup_crop.shape[0]/(2*xyr[-1]))
-    corresponding_pupil = make_lfast_aperture(jup_crop.shape,grid_diameter)
     output_plots = False
-    referenceX,referenceY,magnification,nominalSpot,rotation = lenslet_definition(folder_path, reference_path, xyr, output_plots)
+    referenceX,referenceY,magnification,nominalSpot,rotation = lenslet_definition(reference_path, reference_path, xyr, output_plots=True)
 
     X, Y = np.meshgrid(np.arange(extend_image.shape[0]), np.arange(extend_image.shape[1]))
     proposed_pupil = np.sqrt(np.square(X - xyr[0]) + np.square(Y - xyr[1])) < xyr[2]
@@ -50,6 +48,9 @@ if __name__ == "__main__":
     surfaces, Z = process_folder_of_images(folder_path, rotation, xyr, referenceX, referenceY, magnification,
                                            nominalSpot, xyr_cropped, output_plots=False)
     mean_surface = np.mean(surfaces, axis=0)
+
+    grid_diameter = (clear_aperture_outer*2)
+    corresponding_pupil = make_lfast_aperture(mean_surface.shape,grid_diameter)
 
     current_eigenvalues = eigenvalues.copy()
     eigenvalues, surface = suggest_next_iteration_of_TEC_correction(current_eigenvalues, folder_path, tec_path, mean_surface, eigenvectors, clear_aperture_outer, clear_aperture_inner, Z, eigenvalue_bounds, eigen_gain)

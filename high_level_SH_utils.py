@@ -43,7 +43,7 @@ def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, 
     integration_step = 3 #Units:mm. Size of reconstructed slope pixel
 
     regularSlopeX, regularSlopeY, xCoordinates, yCoordinates = quiver2regular_slope(slope, ideal_coords, slopeMagnification, lateralMagnification, integration_step, output_plots, pupil_center, pupil_radius, interpolation='RBF')
-
+    print(str(len(xCoordinates)) + ':' + str(regularSlopeX.shape[0]) + ' ' + str(len(yCoordinates))+ ':' + str(regularSlopeX.shape[1]))
     mirrorPos = lateralMagnification * ideal_coords
 
     regularSlopeX, regularSlopeY = trim_maps_to_square(regularSlopeX, regularSlopeY)
@@ -57,7 +57,7 @@ def xyr_pupil_definition(extend_path, reference_path):
     jup_image = average_folder_of_images(extend_path)
 
     if not os.path.isfile(reference_path + 'xyr.pkl'):
-        xyr = define_pupil_from_extended_object(jup_image, thresh=127)
+        xyr = define_pupil_from_extended_object(jup_image, thresh=20)
         with open(reference_path + 'xyr.pkl', 'wb') as f:
             pickle.dump(xyr,f)
     else:
@@ -101,7 +101,7 @@ def process_folder_of_images(folder_path,rotation, xyr, referenceX, referenceY, 
         updated_surface = remove_modes(M,C,Z,remove_coef)*1e3
         surfaces.append(updated_surface)
 
-        if output_plots:
+        if True:
             vals = updated_surface[~np.isnan(updated_surface)]
             sorted_vals = np.sort(vals)
             sorted_index = int(0.001 * len(sorted_vals))  # For peak-valley, throw out the extreme tails
@@ -111,6 +111,7 @@ def process_folder_of_images(folder_path,rotation, xyr, referenceX, referenceY, 
             plt.imshow(updated_surface)
             plt.xticks([])
             plt.yticks([])
+            plt.colorbar()
             plt.title('Surface has ' + str(np.round(rms*1000)) + 'nm wavefront error')
             plt.show()
 

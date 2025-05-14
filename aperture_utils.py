@@ -10,7 +10,7 @@ def make_lfast_aperture(dims,grid_diameter):
             print('Warning: attempted to construct an irregular grid of shape ' + str(dims))
             dims = [min(dims)]*2
             print('Using grid ' + str([dims]*2))
-    spider_width = 0.125*25.4e-3
+    spider_width = 0.25*25.4e-3
     pupil_diameter = 0.762
     ID = 6*25.4e-3
 

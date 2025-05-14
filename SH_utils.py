@@ -12,6 +12,7 @@ from skimage.feature import peak_local_max
 from skimage import io
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
+from astropy.io import fits
 
 def find_radius(image):
     """
@@ -565,12 +566,16 @@ def get_quiver(image, reference_x, reference_y, magnification, xyr=None, output_
         plt.quiver(ideal_coords[:, 0], ideal_coords[:, 1], arrows[:, 0], arrows[:, 1], color='r')
         plt.show()
 
-    pupil_center = np.mean(ideal_coords,0)
-    pupil_radius = np.median([np.max(ideal_coords,0) - np.mean(ideal_coords,0),np.mean(ideal_coords,0) - np.min(ideal_coords,0)])
+    if False: #old method: define pupil based on location of "ideal coords" inside pupil - this is inconsistent!
+        pupil_center = np.mean(ideal_coords,0)
+        pupil_radius = np.median([np.max(ideal_coords,0) - np.mean(ideal_coords,0),np.mean(ideal_coords,0) - np.min(ideal_coords,0)])
+    else: #new method: define pupil based on xyr optimizer - this is consistent but can drift / accumulate errors
+        pupil_center = np.array(xyr[:2])
+        pupil_radius = xyr[-1]
 
     return arrows, ideal_coords, actual_coords, pupil_center, pupil_radius
 
-def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnification, integrationStep, output_plots, pupil_center = None, pupil_radius = None, interpolation = 'griddata'):
+def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnification, integrationStep, output_plots, pupil_center = None, pupil_radius = None, interpolation = 'griddata', enforce_pupil_size = True):
     """
     This function is used to get the regular slope maps based on irregular slope maps.
 
@@ -598,8 +603,18 @@ def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnifi
     xEnd = round(np.max(mirrorPos[:, 0]))
     yStart = round(np.min(mirrorPos[:, 1]))
     yEnd = round(np.max(mirrorPos[:, 1]))
-    rangeX = np.arange(xStart, xEnd + integrationStep, integrationStep)
-    rangeY = np.arange(yStart, yEnd + integrationStep, integrationStep)
+
+    scaled_pupil_center = pupil_center * lateralMagnification
+    scaled_pupil_radius = pupil_radius * lateralMagnification
+
+    if not enforce_pupil_size: #Old method: define the pupil based on the range of focused lenslet spots
+        rangeX = np.arange(xStart, xEnd + integrationStep, integrationStep)
+        rangeY = np.arange(yStart, yEnd + integrationStep, integrationStep)
+    else: #New method: enforce that the fitted pupil is symmetrical in x and y
+        rangeX = np.arange(scaled_pupil_center[0]-scaled_pupil_radius,scaled_pupil_center[0]+ scaled_pupil_radius + integrationStep, integrationStep)
+        rangeY = np.arange(scaled_pupil_center[1]-scaled_pupil_radius,scaled_pupil_center[1]+ scaled_pupil_radius + integrationStep, integrationStep)
+        print(str(scaled_pupil_center) + '; ' + str(scaled_pupil_radius) + '; ' + str(lateralMagnification))
+
     xCoordinates, yCoordinates = np.meshgrid(rangeX, rangeY)  # x and y coordinates of fitted points
 
     # Fit slope maps
@@ -620,8 +635,6 @@ def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnifi
         regularSlopeY = np.reshape(vals_y, yCoordinates.shape)
 
         # Mask out values outside pupil
-        scaled_pupil_center = pupil_center * lateralMagnification
-        scaled_pupil_radius = pupil_radius * lateralMagnification
         scaled_ID_radius = scaled_pupil_radius * (6 / 30)
         OD_mask = np.sqrt(np.square(xCoordinates-scaled_pupil_center[0])+np.square(yCoordinates-scaled_pupil_center[1])) < scaled_pupil_radius
         ID_mask = np.sqrt(np.square(xCoordinates-scaled_pupil_center[0])+np.square(yCoordinates-scaled_pupil_center[1])) > scaled_ID_radius
@@ -955,13 +968,15 @@ def SouthwellShift(slopeXIn, slopeYIn):
     return slopeXOut, slopeYOut
 
 def trim_maps_to_square(regularSlopeX, regularSlopeY):
+
     N,M = regularSlopeX.shape
-    if N > M:
-        regularSlopeX = regularSlopeX[int((N-M)/2)+1:-int((N-M)/2),:]
-        regularSlopeY = regularSlopeY[int((N-M)/2)+1:-int((N-M)/2),:]
-    elif N < M:
-        regularSlopeX = regularSlopeX[:,int((N-M)/2)+1:-int((N-M)/2)]
-        regularSlopeY = regularSlopeY[:,int((N-M)/2)+1:-int((N-M)/2)]
+    min_size = np.min([N,M])
+    start_N = (N-min_size)//2
+    start_M = (M-min_size)//2
+
+    regularSlopeX = regularSlopeX[start_N:start_N+min_size, start_M:start_M+min_size]
+    regularSlopeY = regularSlopeY[start_N:start_N+min_size, start_M:start_M+min_size]
+
     return regularSlopeX, regularSlopeY
 
 def SouthwellIntegration(slopeX, slopeY, type='Southwell'):
@@ -1091,15 +1106,20 @@ def SouthwellShifting(slopeX, slopeY):
     return slopeX_shifted, slopeY_shifted
 
 def prepare_image(file_name, rotation = None, xyr = None, output_plots = False):
-    # Read the image
-    image_color = cv2.imread(file_name)
 
-    # Check if the image was loaded successfully
-    if image_color is None:
-        raise FileNotFoundError(f"Image file not found at {file_name}")
+    if file_name.endswith('.bmp'):
+        # Read the image
+        image_color = cv2.imread(file_name)
+        # Check if the image was loaded successfully
+        if image_color is None:
+            raise FileNotFoundError(f"Image file not found at {file_name}")
 
-    # Convert the image to grayscale
-    image_gray = cv2.cvtColor(image_color, cv2.COLOR_BGR2GRAY)
+        # Convert the image to grayscale
+        image_gray = cv2.cvtColor(image_color, cv2.COLOR_BGR2GRAY)
+
+    elif file_name.endswith('.fits') or file_name.endswith('.fit'):
+        hdul = fits.open(file_name)
+        image_gray = hdul[0].data
 
     # Crop the image using the CropImage function
     im_crop = crop_image(image_gray, xyr)
@@ -1124,18 +1144,20 @@ def define_reference(folder_path, xyr=None, output_plots = False):
     nominalSpot_holder = []
     rotation_holder = []
     for file in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, file)
-        image, rotation = prepare_image(file_path,xyr=xyr,output_plots=output_plots)
-        xyr_cropped = [image.shape[0]/2,image.shape[1]/2,xyr[2]]
-        referenceX, referenceY, magnification, nominalSpot = GetGrid(image, xyr_cropped, output_plots)
-        refX_holder.append(referenceX)
-        refY_holder.append(referenceY)
-        magnification_holder.append(magnification)
-        nominalSpot_holder.append(nominalSpot)
-        rotation_holder.append(rotation)
+        if file.endswith('.bmp') or file.endswith('.fits') or file.endswith('.fit'):
+            file_path = os.path.join(folder_path, file)
+            image, rotation = prepare_image(file_path,xyr=xyr,output_plots=output_plots)
+            xyr_cropped = [image.shape[0]/2,image.shape[1]/2,xyr[2]]
+            referenceX, referenceY, magnification, nominalSpot = GetGrid(image, xyr_cropped, output_plots)
+            refX_holder.append(referenceX)
+            refY_holder.append(referenceY)
+            magnification_holder.append(magnification)
+            nominalSpot_holder.append(nominalSpot)
+            rotation_holder.append(rotation)
+
     return np.mean(refX_holder), np.mean(refY_holder), np.mean(magnification_holder), np.mean(nominalSpot_holder,0), np.mean(rotation_holder)
 
-def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1.4, outside_pupil_weight = 1):
+def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=2, outside_pupil_weight = 1):
 
     negative_image = np.subtract(thresh_image.astype(float), np.max(thresh_image.astype(float)))*-1
     X,Y = np.meshgrid(np.arange(thresh_image.shape[0]),np.arange(thresh_image.shape[1]))
@@ -1150,7 +1172,7 @@ def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1.4, out
 
     merit = (bad_pupil - good_pupil)/(np.sum(thresh_image) + np.sum(negative_image))
 
-    if False:
+    if True:
         fig,ax = plt.subplots()
         ax.imshow(thresh_image)
         artist = Circle(xyr[:2],xyr[-1],fill=False,color='r')
@@ -1167,6 +1189,9 @@ def average_folder_of_images(path):
     for file in os.listdir(path):
         if file.lower().endswith(".jpg") or file.lower().endswith(".png") or file.lower().endswith(".bmp"):
             image_holder.append(io.imread(path + file))
+        elif file.lower().endswith(".fits") or file.lower().endswith(".fit"):
+            hdul = fits.open(path+file)
+            image_holder.append(hdul[0].data)
     image = np.mean(image_holder,0)
     return image
 
