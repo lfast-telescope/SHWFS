@@ -2,6 +2,7 @@ import os
 from skimage import io
 import cv2 as cv
 from SH_utils import *
+import numpy as np
 import time
 import pickle
 from scipy.ndimage import gaussian_filter
@@ -9,7 +10,7 @@ from matplotlib import pyplot as plt
 from matplotlib import patches
 from aperture_utils import *
 from high_level_SH_utils import *
-from zernike import *
+from Zernike import *
 from LFAST_wavefront_utils import *
 from LFAST_TEC_output import *
 
@@ -22,9 +23,9 @@ if __name__ == "__main__":
 
     eigenvectors_path = 'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/mirrors/M9/eigenvectors.npy'
     tec_path = eigenvectors_path
-    eigenvectors = np.load(eigenvectors_path,allow_pickle=True)
+    eigenvectors = np.load(eigenvectors_path + 'eigenvectors.npy',allow_pickle=True)
     eigenvalue_bounds = []
-    eigen_gain = 0.4
+    eigen_gain = 0.3
     eigenvalues = [0]*24
     for i in np.arange(len(eigenvalues)):
         eigenvalue_bounds.append([-0.6, 0.6])
