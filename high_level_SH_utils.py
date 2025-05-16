@@ -53,15 +53,16 @@ def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, 
 
     return shape_diff
 
-def xyr_pupil_definition(extend_path, reference_path):
-    jup_image = average_folder_of_images(extend_path)
+def xyr_pupil_definition(reference_path, save_path, redefine_pupil = False):
+    #Define where the pupil is within the image of SH focused spots
+    jup_image = average_folder_of_images(reference_path)
 
-    if not os.path.isfile(reference_path + 'xyr.pkl'):
+    if not os.path.isfile(save_path + 'xyr.pkl') or redefine_pupil:
         xyr = define_pupil_from_extended_object(jup_image, thresh=20)
-        with open(reference_path + 'xyr.pkl', 'wb') as f:
+        with open(save_path + 'xyr.pkl', 'wb') as f:
             pickle.dump(xyr,f)
     else:
-        with open(reference_path + 'xyr.pkl', 'rb') as f:
+        with open(save_path + 'xyr.pkl', 'rb') as f:
             xyr = pickle.load(f)
 
     return xyr, jup_image

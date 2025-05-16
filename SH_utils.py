@@ -1158,7 +1158,8 @@ def define_reference(folder_path, xyr=None, output_plots = False):
     return np.mean(refX_holder), np.mean(refY_holder), np.mean(magnification_holder), np.mean(nominalSpot_holder,0), np.mean(rotation_holder)
 
 def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=2, outside_pupil_weight = 1):
-
+    #The premise of this optimizer is to define a circle that contains as many "good" pixels (containing starlight)
+    #as possible while minimizing as many "bad" pixels that do not contain starlight
     negative_image = np.subtract(thresh_image.astype(float), np.max(thresh_image.astype(float)))*-1
     X,Y = np.meshgrid(np.arange(thresh_image.shape[0]),np.arange(thresh_image.shape[1]))
     proposed_pupil = np.sqrt(np.square(X-xyr[0]) + np.square(Y-xyr[1])) < xyr[2]
@@ -1173,6 +1174,7 @@ def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=2, outsi
     merit = (bad_pupil - good_pupil)/(np.sum(thresh_image) + np.sum(negative_image))
 
     if True:
+        #Plot the image to check how the optimizer is doing
         fig,ax = plt.subplots()
         ax.imshow(thresh_image)
         artist = Circle(xyr[:2],xyr[-1],fill=False,color='r')
@@ -1196,7 +1198,10 @@ def average_folder_of_images(path):
     return image
 
 def define_pupil_from_extended_object(image,thresh=127):
+    #Name is a misnomer: originally used for extended objects but revised for star images
     thresh_image = cv2.threshold(image, thresh, 1, cv2.THRESH_BINARY)[1]
+    
+    #Starting value for optimizer: centerpoint of image
     xyr = [int(thresh_image.shape[0]/2), int(thresh_image.shape[1]/2), int(np.max(thresh_image.shape)/4)]
     res = minimize(jupiter_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead')
     return res.x
