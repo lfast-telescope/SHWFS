@@ -1156,7 +1156,7 @@ def define_reference(folder_path, xyr=None, output_plots = False):
 
     return np.mean(refX_holder), np.mean(refY_holder), np.mean(magnification_holder), np.mean(nominalSpot_holder,0), np.mean(rotation_holder)
 
-def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=2, outside_pupil_weight = 1):
+def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1, outside_pupil_weight = 2):
     #The premise of this optimizer is to define a circle that contains as many "good" pixels (containing starlight)
     #as possible while minimizing as many "bad" pixels that do not contain starlight
     negative_image = np.subtract(thresh_image.astype(float), np.max(thresh_image.astype(float)))*-1

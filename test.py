@@ -40,7 +40,8 @@ if __name__ == "__main__":
     for i in np.arange(len(eigenvalues)):
         eigenvalue_bounds.append([-0.6, 0.6])
     eigen_gain = 0.3 #Gain relating surface error to next iteration adjustement
-
+    eigenvalues = [0]*24 #Starting values for TEC currents
+ 
     in_to_m = 25.4e-3
     OD = 31.9 * in_to_m  # Outer mirror diameter (m)
     ID = 6 * in_to_m  # Central obscuration diameter (m)
@@ -58,6 +59,7 @@ if __name__ == "__main__":
 
     grid_diameter = (clear_aperture_outer*2)
     corresponding_pupil = make_lfast_aperture(mean_surface.shape,grid_diameter)
-
+#%%
     current_eigenvalues = eigenvalues.copy()
-    eigenvalues, surface = suggest_next_iteration_of_TEC_correction(current_eigenvalues, folder_path, tec_path, mean_surface, eigenvectors, clear_aperture_outer, clear_aperture_inner, Z, eigenvalue_bounds, eigen_gain)
+
+    eigenvalues, reduced_surface = suggest_next_iteration_of_TEC_correction(current_eigenvalues, folder_path, tec_path, mean_surface, eigenvectors, clear_aperture_outer, clear_aperture_inner, Z, eigenvalue_bounds, eigen_gain)
