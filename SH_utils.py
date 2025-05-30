@@ -311,7 +311,7 @@ def GetGrid(image, xyr=None, output_plots=False):
     maxValue = np.max(image)
     minValue = np.min(image)
     imageUint8 = ((image - minValue) / (maxValue - minValue) * 255).astype(np.uint8)
-    _, binaryIm = cv2.threshold(imageUint8, np.sort(imageUint8.ravel())[int(imageUint8.size*0.99)], 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, binaryIm = cv2.threshold(imageUint8, np.max(imageUint8)*0.01, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     if output_plots:
         plt.imshow(binaryIm, cmap='gray')
@@ -613,7 +613,6 @@ def quiver2regular_slope(arrows, idealCoords, slopeMagnification, lateralMagnifi
     else: #New method: enforce that the fitted pupil is symmetrical in x and y
         rangeX = np.arange(scaled_pupil_center[0]-scaled_pupil_radius,scaled_pupil_center[0]+ scaled_pupil_radius + integrationStep, integrationStep)
         rangeY = np.arange(scaled_pupil_center[1]-scaled_pupil_radius,scaled_pupil_center[1]+ scaled_pupil_radius + integrationStep, integrationStep)
-        print(str(scaled_pupil_center) + '; ' + str(scaled_pupil_radius) + '; ' + str(lateralMagnification))
 
     xCoordinates, yCoordinates = np.meshgrid(rangeX, rangeY)  # x and y coordinates of fitted points
 
@@ -1173,7 +1172,7 @@ def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=2, outsi
 
     merit = (bad_pupil - good_pupil)/(np.sum(thresh_image) + np.sum(negative_image))
 
-    if True:
+    if False:
         #Plot the image to check how the optimizer is doing
         fig,ax = plt.subplots()
         ax.imshow(thresh_image)
@@ -1203,7 +1202,7 @@ def define_pupil_from_extended_object(image,thresh=127):
     
     #Starting value for optimizer: centerpoint of image
     xyr = [int(thresh_image.shape[0]/2), int(thresh_image.shape[1]/2), int(np.max(thresh_image.shape)/4)]
-    res = minimize(jupiter_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead')
+    res = minimize(jupiter_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead', maxiter=500)
     return res.x
 
 def define_xyr_for_boolean_pupil(pupil):

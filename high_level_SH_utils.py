@@ -4,12 +4,55 @@ import cv2 as cv
 from SH_utils import *
 import time
 import pickle
+import sys
 from scipy.ndimage import gaussian_filter
 from matplotlib import pyplot as plt
 from matplotlib import patches
 from aperture_utils import *
 from Zernike import *
+
+pwd = os.getcwd()
+sys.path.extend([pwd.split('SHWFS')[0] + 'primary_mirror'])
+
 from LFAST_wavefront_utils import *
+
+def full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil = False, output_plots = False):
+    xyr, extend_image = xyr_pupil_definition(folder_path, sh_path, redefine_pupil=redefine_pupil)  #Define location of pupil within SH image
+    output_plots = True
+    referenceX,referenceY,magnification,nominalSpot,rotation = lenslet_definition(folder_path, sh_path, xyr, output_plots, recompute_rotation=redefine_pupil)
+
+    X, Y = np.meshgrid(np.arange(extend_image.shape[0]), np.arange(extend_image.shape[1]))
+    proposed_pupil = np.sqrt(np.square(X - xyr[0]) + np.square(Y - xyr[1])) < xyr[2]
+    cropped_pupil = crop_image(proposed_pupil, xyr)
+    xyr_cropped = [cropped_pupil.shape[0] / 2, cropped_pupil.shape[1] / 2, xyr[-1]]
+
+    surfaces, Z = process_folder_of_images(folder_path, rotation, xyr, referenceX, referenceY, magnification,
+                                           nominalSpot, xyr_cropped, output_plots)
+    mean_surface = np.mean(surfaces, axis=0)
+
+    surface_um = np.flipud(np.fliplr(mean_surface*1e3))
+    M,C = get_M_and_C(surface_um,Z)
+    updated_surface = remove_modes(M,C,Z,[0,1,2,4])
+
+    if True:
+        vals = updated_surface[~np.isnan(updated_surface)]
+        sorted_vals = np.sort(vals)
+        sorted_index = int(0.001 * len(sorted_vals))  # For peak-valley, throw out the extreme tails
+        pv = sorted_vals[-sorted_index] - sorted_vals[sorted_index]
+        rms = np.sqrt(np.sum(np.power(vals, 2)) / len(vals))
+        im_time = folder_path.split('/')[-2]
+        np.save(sh_path + 'wf_' + im_time + '.npy', updated_surface)
+
+        plt.imshow(updated_surface)
+        plt.xticks([])
+        plt.yticks([])
+        plt.colorbar()
+        plt.title('Mirror at ' + im_time + ' has ' + str(np.round(rms * 1000)) + 'nm wavefront error')
+        plt.savefig(sh_path + 'image_' + im_time + '.png')
+        plt.show()
+
+    return surface_um
+
 
 def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr=None, output_plots = False):
 
@@ -43,7 +86,6 @@ def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, 
     integration_step = 3 #Units:mm. Size of reconstructed slope pixel
 
     regularSlopeX, regularSlopeY, xCoordinates, yCoordinates = quiver2regular_slope(slope, ideal_coords, slopeMagnification, lateralMagnification, integration_step, output_plots, pupil_center, pupil_radius, interpolation='RBF')
-    print(str(len(xCoordinates)) + ':' + str(regularSlopeX.shape[0]) + ' ' + str(len(yCoordinates))+ ':' + str(regularSlopeX.shape[1]))
     mirrorPos = lateralMagnification * ideal_coords
 
     regularSlopeX, regularSlopeY = trim_maps_to_square(regularSlopeX, regularSlopeY)
@@ -94,7 +136,7 @@ def process_folder_of_images(folder_path,rotation, xyr, referenceX, referenceY, 
     for num, filename in enumerate(os.listdir(folder_path)):
         starting_time = time.time()
         image,_ = prepare_image(folder_path + '/' + filename, rotation, xyr)
-        shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots=True)
+        shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots)
 
         #if num==0 or shape_diff.shape[0] != Z[1].shape[0]:
         #    Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
@@ -103,20 +145,6 @@ def process_folder_of_images(folder_path,rotation, xyr, referenceX, referenceY, 
         updated_surface = shape_diff.copy()
         
         surfaces.append(updated_surface)
-
-        if True:
-            vals = updated_surface[~np.isnan(updated_surface)]
-            sorted_vals = np.sort(vals)
-            sorted_index = int(0.001 * len(sorted_vals))  # For peak-valley, throw out the extreme tails
-            pv = sorted_vals[-sorted_index] - sorted_vals[sorted_index]
-            rms = np.sqrt(np.sum(np.power(vals, 2)) / len(vals))
-
-            plt.imshow(updated_surface)
-            plt.xticks([])
-            plt.yticks([])
-            plt.colorbar()
-            plt.title('Surface has ' + str(np.round(rms*1000)) + 'nm wavefront error')
-            plt.show()
 
         print('SH image #' + str(num) + ' processed in ' + str(round(time.time()-starting_time, 1)) + ' seconds')
 
