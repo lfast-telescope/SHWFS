@@ -27,9 +27,9 @@ if __name__ == "__main__":
         base_path = '/Documents/lfast/'
     else:
         base_path = 'C:/Users/warrenbfoster/OneDrive - University of Arizona/Documents/LFAST/'
-    sh_path = base_path + 'on-sky/20250501/' #path pointing to folder of SH images for current night
-    reference_path = os.path.join(sh_path,'220452/') #path to set of images used for pupil definition
-    folder_path = os.path.join(sh_path, '221340/')
+    sh_path = base_path + 'on-sky/20250521/SHWFS/' #path pointing to folder of SH images for current night
+    reference_path = os.path.join(sh_path,'222045/') #path to set of images used for pupil definition
+    folder_path = os.path.join(sh_path, '222045/')
 
     eigenvectors_path = base_path + 'mirrors/M9/' #path to the folder containing the TEC eigenvector data from interferometer
     tec_path = eigenvectors_path
@@ -54,12 +54,18 @@ if __name__ == "__main__":
         if os.path.isdir(folder_path):
             try:
                 mean_surface = full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil=True)
+                grid_diameter = (clear_aperture_outer * 2)
+                corresponding_pupil = make_lfast_aperture(mean_surface.shape, grid_diameter)
+                current_eigenvalues = eigenvalues.copy()
+
+                eigenvalues, reduced_surface = suggest_next_iteration_of_TEC_correction(current_eigenvalues,
+                                                                                        folder_path, tec_path,
+                                                                                        mean_surface, eigenvectors,
+                                                                                        clear_aperture_outer,
+                                                                                        clear_aperture_inner, Z,
+                                                                                        eigenvalue_bounds, eigen_gain)
             except:
                 print('Error occurred when processing ' + folder)
 
-    grid_diameter = (clear_aperture_outer*2)
-    corresponding_pupil = make_lfast_aperture(mean_surface.shape,grid_diameter)
-#%%
-    current_eigenvalues = eigenvalues.copy()
 
-    eigenvalues, reduced_surface = suggest_next_iteration_of_TEC_correction(current_eigenvalues, folder_path, tec_path, mean_surface, eigenvectors, clear_aperture_outer, clear_aperture_inner, Z, eigenvalue_bounds, eigen_gain)
+#%%

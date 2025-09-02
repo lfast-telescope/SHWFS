@@ -303,7 +303,7 @@ def improve_image_rotation(im_crop, use_optimizer = True):
     return image, best_angle
 
 
-def GetGrid(image, xyr=None, output_plots=False):
+def GetGrid(image, xyr=None, output_plots=False, lenslet_pitch_magnification = True):
     # Get pixel coordinates of bright spots.
 
     # Binarize the image to get a mask.
@@ -343,17 +343,23 @@ def GetGrid(image, xyr=None, output_plots=False):
     # Calculate the magnification.
     spotsNum = len(rows)
     spotSet = np.column_stack((cols, rows))
-    distance = np.zeros(spotsNum)
-    for i in range(spotsNum):
-        judgedSpot = spotSet[i, :]
-        judgedSpotSet = np.delete(spotSet, i, axis=0)
-        closestSpot, _ = FindClosestPoint(judgedSpotSet, judgedSpot)
-        distance[i] = np.linalg.norm(closestSpot - judgedSpot)
-    sortedDist = np.sort(distance)
-    croppedPercent = 0.1  # (!)
-    croppedNum = int(croppedPercent * spotsNum)
-    croppedDist = sortedDist[croppedNum:spotsNum - croppedNum]
-    magnification = np.max(croppedDist)
+
+    if lenslet_pitch_magnification:
+        lenslet_pitch = 300e-6 #unit: m
+        pixel_pitch = 5.5e-6
+        magnification = lenslet_pitch / pixel_pitch
+    else:
+        distance = np.zeros(spotsNum)
+        for i in range(spotsNum):
+            judgedSpot = spotSet[i, :]
+            judgedSpotSet = np.delete(spotSet, i, axis=0)
+            closestSpot, _ = FindClosestPoint(judgedSpotSet, judgedSpot)
+            distance[i] = np.linalg.norm(closestSpot - judgedSpot)
+        sortedDist = np.sort(distance)
+        croppedPercent = 0.1  # (!)
+        croppedNum = int(croppedPercent * spotsNum)
+        croppedDist = sortedDist[croppedNum:spotsNum - croppedNum]
+        magnification = np.max(croppedDist)
 
     # Find the central reference.
     if xyr is None:
@@ -563,7 +569,15 @@ def get_quiver(image, reference_x, reference_y, magnification, xyr=None, output_
     if output_plots:
         plt.show()
         plt.imshow(image, cmap='gray')
-        plt.quiver(ideal_coords[:, 0], ideal_coords[:, 1], arrows[:, 0], arrows[:, 1], color='r')
+
+        if False:
+            plt.scatter(ideal_coords[:, 0], ideal_coords[:, 1], c='c', marker='o',s=4,label='Ideal coord')
+            plt.scatter(actual_coords[:, 0], actual_coords[:, 1], c='g', marker='o',s=4,label='Actual coord')
+            quiver_scale = image.shape[0]
+            plt.quiver(ideal_coords[:, 0], ideal_coords[:, 1], arrows[:, 0], arrows[:, 1], color='r', angles = 'xy', scale_units='width',scale =quiver_scale, label='Quiver')
+            plt.legend()
+        else:
+            plt.quiver(ideal_coords[:, 0], ideal_coords[:, 1], arrows[:, 0], arrows[:, 1], color='r')
         plt.show()
 
     if False: #old method: define pupil based on location of "ideal coords" inside pupil - this is inconsistent!
@@ -1120,6 +1134,9 @@ def prepare_image(file_name, rotation = None, xyr = None, output_plots = False):
         hdul = fits.open(file_name)
         image_gray = hdul[0].data
 
+    elif file_name.endswith('.npy'):
+        image_gray = np.load(file_name)
+
     # Crop the image using the CropImage function
     im_crop = crop_image(image_gray, xyr)
 
@@ -1136,14 +1153,15 @@ def prepare_image(file_name, rotation = None, xyr = None, output_plots = False):
 
     return image, rotation
 
-def define_reference(folder_path, xyr=None, output_plots = False):
+def define_reference(folder_path, xyr=None, output_plots = False, num_files = 20):
     refX_holder = []
     refY_holder = []
     magnification_holder = []
     nominalSpot_holder = []
     rotation_holder = []
+    file_counter = 0
     for file in os.listdir(folder_path):
-        if file.endswith('.bmp') or file.endswith('.fits') or file.endswith('.fit'):
+        if (file.endswith('.bmp') or file.endswith('.fits') or file.endswith('.fit')) and len(magnification_holder) < num_files:
             file_path = os.path.join(folder_path, file)
             image, rotation = prepare_image(file_path,xyr=xyr,output_plots=output_plots)
             xyr_cropped = [image.shape[0]/2,image.shape[1]/2,xyr[2]]
@@ -1154,7 +1172,8 @@ def define_reference(folder_path, xyr=None, output_plots = False):
             nominalSpot_holder.append(nominalSpot)
             rotation_holder.append(rotation)
 
-    return np.mean(refX_holder), np.mean(refY_holder), np.mean(magnification_holder), np.mean(nominalSpot_holder,0), np.mean(rotation_holder)
+
+    return np.median(refX_holder), np.median(refY_holder), np.median(magnification_holder), np.median(nominalSpot_holder,0), np.median(rotation_holder)
 
 def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1, outside_pupil_weight = 2):
     #The premise of this optimizer is to define a circle that contains as many "good" pixels (containing starlight)
@@ -1172,7 +1191,7 @@ def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1, outsi
 
     merit = (bad_pupil - good_pupil)/(np.sum(thresh_image) + np.sum(negative_image))
 
-    if False:
+    if False and np.random.rand() < 0.1:
         #Plot the image to check how the optimizer is doing
         fig,ax = plt.subplots()
         ax.imshow(thresh_image)
@@ -1185,24 +1204,31 @@ def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1, outsi
 
     return merit
 
-def average_folder_of_images(path):
+def average_folder_of_images(path, list_of_files = None):
     image_holder = []
-    for file in os.listdir(path):
+    if list_of_files is None:
+        list_of_files = os.listdir(path)
+    for file in list_of_files:
         if file.lower().endswith(".jpg") or file.lower().endswith(".png") or file.lower().endswith(".bmp"):
             image_holder.append(io.imread(path + file))
         elif file.lower().endswith(".fits") or file.lower().endswith(".fit"):
             hdul = fits.open(path+file)
             image_holder.append(hdul[0].data)
+
     image = np.mean(image_holder,0)
     return image
 
 def define_pupil_from_extended_object(image,thresh=127):
     #Name is a misnomer: originally used for extended objects but revised for star images
-    thresh_image = cv2.threshold(image, thresh, 1, cv2.THRESH_BINARY)[1]
-    
+    if False: #original thought: treat each "active" zone as the same
+        thresh_image = cv2.threshold(image, thresh, 1, cv2.THRESH_BINARY)[1]
+    else: #New thought: do better zone identification by weighting the value of focused spot counts
+        thresh_image = image.copy()
+        thresh_image[thresh_image < thresh] = 0
+
     #Starting value for optimizer: centerpoint of image
     xyr = [int(thresh_image.shape[0]/2), int(thresh_image.shape[1]/2), int(np.max(thresh_image.shape)/4)]
-    res = minimize(jupiter_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead', maxiter=500)
+    res = minimize(jupiter_pupil_merit_function, xyr, args=thresh_image, method='Nelder-Mead', options = {'maxiter':500})
     return res.x
 
 def define_xyr_for_boolean_pupil(pupil):

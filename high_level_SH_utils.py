@@ -16,9 +16,9 @@ sys.path.extend([pwd.split('SHWFS')[0] + 'primary_mirror'])
 
 from LFAST_wavefront_utils import *
 
-def full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil = False, output_plots = False):
+def full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil = False, output_plots = False, subset_list = None):
     xyr, extend_image = xyr_pupil_definition(folder_path, sh_path, redefine_pupil=redefine_pupil)  #Define location of pupil within SH image
-    output_plots = True
+    output_plots = False
     referenceX,referenceY,magnification,nominalSpot,rotation = lenslet_definition(folder_path, sh_path, xyr, output_plots, recompute_rotation=redefine_pupil)
 
     X, Y = np.meshgrid(np.arange(extend_image.shape[0]), np.arange(extend_image.shape[1]))
@@ -26,15 +26,22 @@ def full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil = False, outp
     cropped_pupil = crop_image(proposed_pupil, xyr)
     xyr_cropped = [cropped_pupil.shape[0] / 2, cropped_pupil.shape[1] / 2, xyr[-1]]
 
-    surfaces, Z = process_folder_of_images(folder_path, rotation, xyr, referenceX, referenceY, magnification,
+    if subset_list is None:
+        surfaces = process_folder_of_images(folder_path, rotation, xyr, referenceX, referenceY, magnification,
                                            nominalSpot, xyr_cropped, output_plots)
+        save_image = True
+    else:
+        surfaces = process_subset_of_images(folder_path, subset_list, rotation, xyr, referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots)
+        save_image = False
+
     mean_surface = np.mean(surfaces, axis=0)
-
     surface_um = np.flipud(np.fliplr(mean_surface*1e3))
-    M,C = get_M_and_C(surface_um,Z)
-    updated_surface = remove_modes(M,C,Z,[0,1,2,4])
 
-    if True:
+    if save_image:
+        Z = General_zernike_matrix(44, int(15 * 25.4 * 1e3), int(3 * 25.4 * 1e3), surface_um.shape[0])
+        M, C = get_M_and_C(surface_um, Z)
+        updated_surface = remove_modes(M, C, Z, [0, 1, 2, 4])
+
         vals = updated_surface[~np.isnan(updated_surface)]
         sorted_vals = np.sort(vals)
         sorted_index = int(0.001 * len(sorted_vals))  # For peak-valley, throw out the extreme tails
@@ -47,12 +54,11 @@ def full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil = False, outp
         plt.xticks([])
         plt.yticks([])
         plt.colorbar()
-        plt.title('Mirror at ' + im_time + ' has ' + str(np.round(rms * 1000)) + 'nm wavefront error')
+        plt.title('Mirror at ' + im_time + ' has ' + str(np.round(rms)) + 'nm wavefront error')
         plt.savefig(sh_path + 'image_' + im_time + '.png')
         plt.show()
 
     return surface_um
-
 
 def compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr=None, output_plots = False):
 
@@ -100,7 +106,9 @@ def xyr_pupil_definition(reference_path, save_path, redefine_pupil = False):
     jup_image = average_folder_of_images(reference_path)
 
     if not os.path.isfile(save_path + 'xyr.pkl') or redefine_pupil:
-        xyr = define_pupil_from_extended_object(jup_image, thresh=20)
+        sorted_vals = np.sort(jup_image.ravel())
+        thresh = sorted_vals[int(len(sorted_vals)*0.995)]
+        xyr = define_pupil_from_extended_object(jup_image, thresh)
         with open(save_path + 'xyr.pkl', 'wb') as f:
             pickle.dump(xyr,f)
     else:
@@ -129,27 +137,80 @@ def lenslet_definition(reference_path, save_path, xyr, output_plots, recompute_r
             pickle.dump(references,f)
     return referenceX,referenceY,magnification,nominalSpot,rotation
 
+def process_subset_of_images(folder_path, set_of_files, rotation, xyr, referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots):
+    surfaces = []
+    remove_coef = [0, 1, 2, 4]
+
+    for num, filename in enumerate(set_of_files):
+        if filename.endswith('.fits'):
+            fileroot = filename.split('.fits')[0]
+            savepath = os.path.join(folder_path, fileroot + '.npy')
+            if os.path.isfile(savepath):
+                updated_surface = np.load(savepath)
+            else:
+                starting_time = time.time()
+                image,_ = prepare_image(folder_path + '/' + filename, rotation, xyr)
+                shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots)
+
+                #if num==0 or shape_diff.shape[0] != Z[1].shape[0]:
+                #    Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
+                #M,C = get_M_and_C(shape_diff, Z)
+                #updated_surface = remove_modes(M,C,Z,remove_coef)*1e3
+                updated_surface = shape_diff.copy()
+                updated_surface = updated_surface * 1e3
+                np.save(savepath, updated_surface)
+                print('SH image #' + str(num) + ' processed in ' + str(round(time.time() - starting_time, 1)) + ' seconds')
+            surfaces.append(updated_surface)
+    return surfaces
+
+
+
 def process_folder_of_images(folder_path,rotation, xyr, referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots):
     surfaces = []
     remove_coef = [0, 1, 2, 4]
 
     for num, filename in enumerate(os.listdir(folder_path)):
-        starting_time = time.time()
-        image,_ = prepare_image(folder_path + '/' + filename, rotation, xyr)
-        shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots)
+        if filename.endswith('.fits'):
+            fileroot = filename.split('.fits')[0]
+            savepath = os.path.join(folder_path, fileroot + '.npy')
+            if os.path.isfile(savepath):
+                updated_surface = np.load(savepath)
+            else:
+                starting_time = time.time()
+                image,_ = prepare_image(folder_path + '/' + filename, rotation, xyr)
+                shape_diff = compute_wavefront(image,referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots)
 
-        #if num==0 or shape_diff.shape[0] != Z[1].shape[0]:
-        #    Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
-        #M,C = get_M_and_C(shape_diff, Z)
-        #updated_surface = remove_modes(M,C,Z,remove_coef)*1e3
-        updated_surface = shape_diff.copy()
-        updated_surface = updated_surface * 1e3
-        surfaces.append(updated_surface)
+                #if num==0 or shape_diff.shape[0] != Z[1].shape[0]:
+                #    Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
+                #M,C = get_M_and_C(shape_diff, Z)
+                #updated_surface = remove_modes(M,C,Z,remove_coef)*1e3
+                updated_surface = shape_diff.copy()
+                updated_surface = updated_surface * 1e3
+                np.save(savepath, updated_surface)
+                print('SH image #' + str(num) + ' processed in ' + str(round(time.time() - starting_time, 1)) + ' seconds')
+            surfaces.append(updated_surface)
 
-        print('SH image #' + str(num) + ' processed in ' + str(round(time.time()-starting_time, 1)) + ' seconds')
+    return surfaces
 
-    Z = General_zernike_matrix(44,int(15*25.4 * 1e3),int(3*25.4*1e3),shape_diff.shape[0])
-    return surfaces, Z
+def compute_wavefront_with_averaged_lenslet_images(averaged_path, averaged_file_name, sh_path, redefine_pupil, output_plots):
+
+    extend_image = np.load(averaged_path + averaged_file_name)
+    xyr = np.load(sh_path + 'xyr.pkl', allow_pickle=True)
+    referenceX,referenceY,magnification,nominalSpot,rotation = lenslet_definition(averaged_path, sh_path, xyr, output_plots, recompute_rotation=redefine_pupil)
+
+    X, Y = np.meshgrid(np.arange(extend_image.shape[0]), np.arange(extend_image.shape[1]))
+    proposed_pupil = np.sqrt(np.square(X - xyr[0]) + np.square(Y - xyr[1])) < xyr[2]
+    cropped_pupil = crop_image(proposed_pupil, xyr)
+    xyr_cropped = [cropped_pupil.shape[0] / 2, cropped_pupil.shape[1] / 2, xyr[-1]]
+
+    image, _ = prepare_image(averaged_path + averaged_file_name, rotation, xyr)
+    shape_diff = compute_wavefront(image, referenceX, referenceY, magnification, nominalSpot, xyr_cropped, output_plots)
+
+    updated_surface = shape_diff.copy()
+    updated_surface = updated_surface * 1e3
+
+    return updated_surface
+
 
 #%%
 def suggest_next_iteration_of_TEC_correction(current_eigenvalues, folder_path, tec_path, mean_surface, eigenvectors, clear_aperture_outer, clear_aperture_inner, Z, eigenvalue_bounds, eigen_gain):
