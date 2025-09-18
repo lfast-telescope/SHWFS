@@ -1120,7 +1120,7 @@ def SouthwellShifting(slopeX, slopeY):
 
 def prepare_image(file_name, rotation = None, xyr = None, output_plots = False):
 
-    if file_name.endswith('.bmp'):
+    if file_name.suffix == '.bmp':
         # Read the image
         image_color = cv2.imread(file_name)
         # Check if the image was loaded successfully
@@ -1130,11 +1130,11 @@ def prepare_image(file_name, rotation = None, xyr = None, output_plots = False):
         # Convert the image to grayscale
         image_gray = cv2.cvtColor(image_color, cv2.COLOR_BGR2GRAY)
 
-    elif file_name.endswith('.fits') or file_name.endswith('.fit'):
+    elif file_name.suffix == '.fits' or file_name.suffix == '.fit':
         hdul = fits.open(file_name)
         image_gray = hdul[0].data
 
-    elif file_name.endswith('.npy'):
+    elif file_name.suffix == '.npy':
         image_gray = np.load(file_name)
 
     # Crop the image using the CropImage function
@@ -1205,6 +1205,8 @@ def jupiter_pupil_merit_function(xyr, thresh_image, inside_pupil_weight=1, outsi
     return merit
 
 def average_folder_of_images(path, list_of_files = None):
+    if not path.endswith('/'):
+        path = path + '/'
     image_holder = []
     if list_of_files is None:
         list_of_files = os.listdir(path)

@@ -5,16 +5,62 @@ from SH_utils import *
 import time
 import pickle
 import sys
+import warnings
 from scipy.ndimage import gaussian_filter
 from matplotlib import pyplot as plt
 from matplotlib import patches
 from aperture_utils import *
 from Zernike import *
+from pathlib import Path
 
-pwd = os.getcwd()
-sys.path.extend([pwd.split('SHWFS')[0] + 'primary_mirror'])
+current = Path(__file__)
+for path in [current] + list(current.parents):
+    if (path / 'mirror_control').exists():
+        workspace_root = str(path)
+        break
 
-from LFAST_wavefront_utils import *
+if workspace_root and workspace_root not in sys.path:
+    sys.path.insert(0, workspace_root)
+
+# Replace deprecated wildcard import from LFAST_wavefront_utils
+# Import from mirror_control/shared
+from mirror_control.shared.zernike_utils import get_M_and_C, remove_modes
+from mirror_control.shared.General_zernike_matrix import General_zernike_matrix
+
+# Import from local SH_utils (these functions are actually here)
+from SH_utils import (
+    average_folder_of_images, 
+    define_pupil_from_extended_object,
+    crop_image,
+    griddata_interpolater
+)
+
+# Import TEC functions from primary_mirror
+from primary_mirror.LFAST_wavefront_utils import optimize_TECs
+from primary_mirror.LFAST_TEC_output import write_eigenvalues_to_csv
+
+# Import refactored classes (if using the deprecation wrapper)
+try:
+    from refactored_shwfs import SHWFSConfig, SHWFSReconstructor
+except ImportError:
+    # Classes not available, will skip deprecation wrapper
+    pass
+
+def full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil=False, 
+                             output_plots=False, subset_list=None):
+    """
+    DEPRECATED: Use SHWFSReconstructor class instead.
+    This function will be removed in future version.
+    """
+    warnings.warn("full_SHWFS_reconstruction is deprecated. Use SHWFSReconstructor class.", 
+                  DeprecationWarning, stacklevel=2)
+    
+    config = SHWFSConfig()
+    reconstructor = SHWFSReconstructor(config)
+    reconstructor.calibrate(sh_path, folder_path, redefine_pupil)
+    result = reconstructor.reconstruct_from_folder(folder_path, subset_list, output_plots)
+    return result.surface_um
+
 
 def full_SHWFS_reconstruction(sh_path, folder_path, redefine_pupil = False, output_plots = False, subset_list = None):
     xyr, extend_image = xyr_pupil_definition(folder_path, sh_path, redefine_pupil=redefine_pupil)  #Define location of pupil within SH image
