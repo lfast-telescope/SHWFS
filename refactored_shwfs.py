@@ -251,7 +251,7 @@ class SHWFSReconstructor:
                 else:
                     starting_time = time.time()
                     #prepare wavefront
-                    image = self._prepare_image(Path.joinpath(folder_path, filename))
+                    image = self._prepare_image(Path.joinpath(folder_path, filename), use_plots)
                     #compute_wavefront
                     shape_diff = self._compute_wavefront_from_image(image, use_plots)
 
@@ -287,10 +287,10 @@ class SHWFSReconstructor:
 
         return shape_diff
         
-    def _prepare_image(self, image_path: Path) -> Tuple[np.ndarray, np.ndarray]:
+    def _prepare_image(self, image_path: Path, use_plots) -> Tuple[np.ndarray, np.ndarray]:
         """Prepare image for processing (rotation, cropping)."""
         # Implementation moved from prepare_image()
-        image,_ = prepare_image(image_path, self._calibration_data["rotation"], self._pupil_definition["xyr"])
+        image,_ = prepare_image(image_path, self._calibration_data["rotation"], self._pupil_definition["xyr"], output_plots=use_plots)
         return image
         
     def _analyze_surfaces(self, surfaces: List[np.ndarray], 

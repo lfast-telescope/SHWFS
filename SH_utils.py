@@ -468,6 +468,10 @@ def get_quiver(image, reference_x, reference_y, magnification, xyr=None, output_
         y_cent = xyr[1]
         radius = xyr[2]
 
+    if True: #debugging: enforce xyr to center of cropped_image
+        x_cent = size_x/2
+        y_cent = size_y/2
+        
     central_obscuration_radius = radius * 6 / 30
 
     if output_plots:
